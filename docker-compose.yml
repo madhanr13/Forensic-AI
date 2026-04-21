@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  forensicai:
+    build: .
+    container_name: forensicai
+    ports:
+      - "8000:8000"
+    environment:
+      - FORENSICAI_HOST=0.0.0.0
+      - FORENSICAI_PORT=8000
+      - FORENSICAI_DEBUG=false
+    volumes:
+      - ./data/models:/app/data/models  # Persist trained models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,29 @@
+# ForensicAI - Requirements
+# Core Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+
+# Deep Learning
+torch
+torchvision
+
+# Computer Vision & Image Processing
+opencv-python-headless
+Pillow
+scikit-image
+
+# Machine Learning
+scikit-learn
+numpy
+
+# Metadata Parsing
+exifread
+
+# Signal Processing
+pywavelets
+
+# Utilities
+tqdm
+scipy
