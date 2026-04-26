@@ -1,4 +1,4 @@
-/* ForensicAI */
+/* ForensicAI — Dashboard Logic */
 (function () {
     "use strict";
 
@@ -18,15 +18,34 @@
     const scanImg      = $("#scanImage");
     const scanStatus   = $("#scanStatus");
     const progressFill = $("#progressFill");
+    const progressPct  = $("#progressPct");
     const resultsSec   = $("#resultsSection");
     const newBtn       = $("#newAnalysisBtn");
     const modal        = $("#vizModal");
     const modalClose   = $("#modalClose");
     const modalTitle   = $("#modalTitle");
+    const opacitySlider = $("#opacitySlider");
+    const sliderValue  = $("#sliderValue");
 
     let file = null;
 
-    /* ── upload ──────────────────────────────────────────── */
+    /* ── Interactive Glow on Drop Zone ─────────────────────── */
+    uploadArea.addEventListener("mousemove", e => {
+        const rect = uploadArea.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        uploadArea.style.setProperty("--mx", `${x}%`);
+        uploadArea.style.setProperty("--my", `${y}%`);
+    });
+
+    /* ── Topbar scroll effect ──────────────────────────────── */
+    const topbar = $("#topbar");
+    window.addEventListener("scroll", () => {
+        topbar.style.borderBottomColor = window.scrollY > 10
+            ? "rgba(30,30,42,0.8)" : "var(--border)";
+    });
+
+    /* ── Upload Logic ──────────────────────────────────────── */
     uploadArea.addEventListener("click", () => fileInput.click());
     uploadArea.addEventListener("dragover", e => { e.preventDefault(); uploadArea.classList.add("over"); });
     uploadArea.addEventListener("dragleave", () => uploadArea.classList.remove("over"));
@@ -38,7 +57,7 @@
     fileInput.addEventListener("change", () => { if (fileInput.files.length) pick(fileInput.files[0]); });
 
     function pick(f) {
-        if (f.size > 25e6) { alert("Max 25 MB"); return; }
+        if (f.size > 25e6) { alert("File size exceeds 25MB limit"); return; }
         file = f;
         const r = new FileReader();
         r.onload = e => {
@@ -47,9 +66,9 @@
             previewSize.textContent = fmt(f.size);
             previewBox.style.display = "block";
             uploadArea.style.display = "none";
-            // hide capabilities row when preview is shown
-            const caps = $(".capabilities");
-            if (caps) caps.style.display = "none";
+            $("#stepsRow").style.display = "none";
+            $(".features-section").style.display = "none";
+            $(".trust-bar").style.display = "none";
         };
         r.readAsDataURL(f);
     }
@@ -61,156 +80,242 @@
         file = null; fileInput.value = "";
         previewBox.style.display = "none";
         uploadArea.style.display = "block";
-        const caps = $(".capabilities");
-        if (caps) caps.style.display = "flex";
+        $("#stepsRow").style.display = "flex";
+        $(".features-section").style.display = "block";
+        $(".trust-bar").style.display = "flex";
         scanSec.style.display = "none";
         resultsSec.style.display = "none";
         uploadSec.style.display = "block";
     }
 
-    /* ── analyze ─────────────────────────────────────────── */
+    /* ── Analysis Execution ────────────────────────────────── */
     analyzeBtn.addEventListener("click", () => { if (file) run(); });
 
     async function run() {
         uploadSec.style.display = "none";
         scanSec.style.display = "block";
-        resultsSec.style.display = "none";
         scanImg.src = previewImg.src;
 
         const items = $$(".module-item");
-        items.forEach(el => { el.classList.remove("done","active"); el.querySelector(".module-check").textContent = "·"; });
+        items.forEach(el => {
+            el.classList.remove("done", "active");
+        });
 
-        let prog = 0;
-        const tick = setInterval(() => { if (prog < 82) { prog += Math.random() * 9; progressFill.style.width = Math.min(prog, 82) + "%"; } }, 350);
-        const anim = setInterval(() => {
-            const cur = document.querySelector(".module-item.active");
-            const nxt = document.querySelector(".module-item:not(.done):not(.active)");
-            if (cur) { cur.classList.replace("active","done"); cur.querySelector(".module-check").textContent = "✓"; }
-            if (nxt) {
-                nxt.classList.add("active");
-                nxt.querySelector(".module-check").textContent = "→";
-                scanStatus.textContent = nxt.querySelector("span:last-child").textContent;
+        let progress = 0;
+        const pInterval = setInterval(() => {
+            if (progress < 85) {
+                progress += Math.random() * 4;
+                const p = Math.min(progress, 85);
+                progressFill.style.width = p + "%";
+                if (progressPct) progressPct.textContent = Math.round(p) + "%";
             }
-        }, 700);
+        }, 300);
+
+        let moduleIdx = 0;
+        const mInterval = setInterval(() => {
+            if (moduleIdx > 0 && moduleIdx <= items.length) {
+                items[moduleIdx - 1].classList.remove("active");
+                items[moduleIdx - 1].classList.add("done");
+            }
+            if (moduleIdx < items.length) {
+                items[moduleIdx].classList.add("active");
+                scanStatus.textContent = "Scanning: " + items[moduleIdx].querySelector("span:last-child").textContent;
+                moduleIdx++;
+            }
+        }, 800);
 
         try {
             const fd = new FormData(); fd.append("file", file);
-            const res = await fetch("/api/analyze", { method: "POST", body: fd });
-            clearInterval(tick); clearInterval(anim);
-            if (!res.ok) throw new Error((await res.json()).detail || "Failed");
+
+            // AbortController with 120s timeout for large images
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000);
+
+            const res = await fetch("/api/analyze", {
+                method: "POST",
+                body: fd,
+                signal: controller.signal,
+                credentials: "same-origin",
+            });
+
+            clearTimeout(timeout);
+            clearInterval(pInterval);
+            clearInterval(mInterval);
+
+            if (!res.ok) {
+                let errMsg = "Analysis pipeline failed";
+                try { errMsg = (await res.json()).detail || errMsg; } catch(_) {}
+                throw new Error(errMsg);
+            }
             const data = await res.json();
 
-            items.forEach(el => { el.classList.remove("active"); el.classList.add("done"); el.querySelector(".module-check").textContent = "✓"; });
+            items.forEach(el => {
+                el.classList.remove("active");
+                el.classList.add("done");
+            });
             progressFill.style.width = "100%";
-            scanStatus.textContent = "Complete";
-            setTimeout(() => render(data), 600);
-        } catch (e) {
-            clearInterval(tick); clearInterval(anim);
-            alert(e.message); reset();
+            if (progressPct) progressPct.textContent = "100%";
+            scanStatus.textContent = "Analysis Complete";
+
+            setTimeout(() => render(data), 800);
+        } catch (err) {
+            clearInterval(pInterval);
+            clearInterval(mInterval);
+            let msg = err.message;
+            if (err.name === "AbortError") {
+                msg = "Analysis timed out. The image may be too large or the server is busy. Please try again.";
+            } else if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
+                msg = "Network error: Could not reach the server. Make sure the server is running at " + window.location.origin;
+            }
+            alert(msg);
+            reset();
         }
     }
 
-    /* ── render ───────────────────────────────────────────── */
+    /* ── Results Rendering ─────────────────────────────────── */
     function render(data) {
         scanSec.style.display = "none";
         resultsSec.style.display = "block";
 
         const score = data.overall_score;
-        const v = data.overall_verdict;
+        const verdict = data.overall_verdict;
 
-        // gauge
+        // Gauge animation
         const circ = 2 * Math.PI * 52;
-        const off = circ - (score / 100) * circ;
+        const offset = circ - (score / 100) * circ;
         const fill = $("#gaugeFill");
-        let col = score < 30 ? "#3dcc7a" : score < 60 ? "#e0a535" : "#e05252";
-        fill.setAttribute("stroke", col);
-        setTimeout(() => { fill.style.strokeDashoffset = off; }, 60);
+        const color = score < 30 ? "var(--green)" : score < 60 ? "var(--amber)" : "var(--red)";
+
+        fill.setAttribute("stroke", color);
+        setTimeout(() => { fill.style.strokeDashoffset = offset; }, 100);
 
         const num = $("#scoreNumber");
-        num.style.color = col;
-        animNum(num, 0, Math.round(score), 1200);
+        num.style.color = color;
+        animateNumber(num, 0, Math.round(score), 1500);
 
-        const pill = $("#verdictBadge");
-        pill.textContent = v;
-        pill.className = "verdict-pill " + v.toLowerCase();
+        const badge = $("#verdictBadge");
+        badge.textContent = verdict;
+        badge.className = "verdict-pill " + verdict.toLowerCase();
 
-        $("#analysisTime").textContent = data.elapsed_seconds + "s";
+        $("#analysisTime").textContent = `${data.elapsed_seconds}s processing`;
         $("#analysisFile").textContent = data.filename;
 
-        // cards
+        // Module Cards
         const grid = $("#moduleResultsGrid");
         grid.innerHTML = "";
-        const order = ["ela","copymove","noise","ai_detection","heatmap","metadata"];
+        const keys = ["ela", "copymove", "noise", "ai_detection", "heatmap", "metadata"];
 
-        for (const key of order) {
-            const m = data.modules[key]; if (!m) continue;
-            const vc = vclass(m.verdict);
+        keys.forEach(key => {
+            const m = data.modules[key]; if (!m) return;
+            const cls = getVerdictClass(m.verdict);
             const pct = Math.round(m.score * 100);
 
-            const el = document.createElement("div");
-            el.className = "card";
-            el.innerHTML = `
+            const card = document.createElement("div");
+            card.className = "card";
+            card.innerHTML = `
                 <div class="card-head">
-                    <span class="card-name">${esc(m.display_name)}</span>
-                    <span class="card-pill ${vc}">${esc(m.verdict)}</span>
+                    <span class="card-name">${escape(m.display_name)}</span>
+                    <span class="card-pill ${cls}">${escape(m.verdict)}</span>
                 </div>
                 <div class="card-body">
-                    <div class="card-bar"><div class="card-bar-fill ${vc}" style="width:${pct}%"></div></div>
-                    <ul class="card-flags">${m.flags.map(f => `<li>${esc(f)}</li>`).join("")}</ul>
+                    <div class="card-bar"><div style="width:${pct}%;height:100%;background:var(--${cls === 'green' ? 'green' : cls === 'amber' ? 'amber' : 'red'});border-radius:2px;transition:width .6s ease"></div></div>
+                    <ul class="card-flags">${m.flags.map(f => `<li>${escape(f)}</li>`).join("")}</ul>
                 </div>
                 <div class="card-foot">
-                    <button class="link-btn j-details">Details</button>
-                    ${m.visualization ? `<button class="viz-btn j-viz">Visualization</button>` : ""}
+                    <button class="link-btn j-details">View Details</button>
+                    ${m.visualization ? `<button class="viz-btn j-viz">Show Visualization</button>` : ""}
                 </div>`;
-            el._d = m;
-            grid.appendChild(el);
-        }
-
-        grid.addEventListener("click", e => {
-            const card = e.target.closest(".card"); if (!card) return;
-            if (e.target.closest(".j-details")) openDetails(card._d);
-            if (e.target.closest(".j-viz")) openViz(card._d);
+            card._data = m;
+            grid.appendChild(card);
         });
+
+        grid.onclick = e => {
+            const btn = e.target.closest("button"); if (!btn) return;
+            const card = btn.closest(".card");
+            if (btn.classList.contains("j-details")) openDetails(card._data);
+            if (btn.classList.contains("j-viz")) openViz(card._data);
+        };
 
         resultsSec.scrollIntoView({ behavior: "smooth" });
     }
 
-    /* ── modals ───────────────────────────────────────────── */
+    /* ── Modal Components ──────────────────────────────────── */
     function openViz(m) {
-        modalTitle.textContent = m.display_name;
-        $(".modal-body").innerHTML = `<img id="modalImage" alt="" src="data:image/png;base64,${m.visualization}">`;
+        modalTitle.textContent = "Visualization — " + m.display_name;
+        $(".modal-body").innerHTML = `<img id="modalImage" alt="" src="data:image/png;base64,${m.visualization}" style="filter:contrast(1.1) brightness(1.1);border-radius:8px;">`;
         $("#modalControls").style.display = "block";
         modal.style.display = "flex";
+        opacitySlider.value = 100;
+        if (sliderValue) sliderValue.textContent = "100%";
+        opacitySlider.oninput = () => {
+            $("#modalImage").style.opacity = opacitySlider.value / 100;
+            if (sliderValue) sliderValue.textContent = opacitySlider.value + "%";
+        };
     }
+
     function openDetails(m) {
-        modalTitle.textContent = m.display_name;
-        let h = '<div class="details-grid">';
-        for (const [k,v] of Object.entries(m.details || {})) {
-            h += `<div class="detail-item"><span class="label">${fmtKey(k)}</span><span class="value">${esc(typeof v==="object"?JSON.stringify(v):String(v))}</span></div>`;
+        modalTitle.textContent = "Details — " + m.display_name;
+        let html = '<div class="details-grid">';
+        for (const [key, val] of Object.entries(m.details || {})) {
+            html += `
+                <div class="detail-item">
+                    <span class="label">${formatKey(key)}</span>
+                    <span class="value">${escape(typeof val === "object" ? JSON.stringify(val) : String(val))}</span>
+                </div>`;
         }
-        h += '</div>';
-        $(".modal-body").innerHTML = h;
+        html += '</div>';
+        $(".modal-body").innerHTML = html;
         $("#modalControls").style.display = "none";
         modal.style.display = "flex";
     }
 
-    modalClose.addEventListener("click", closeModal);
-    modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
-    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+    modalClose.onclick = () => { modal.style.display = "none"; };
+    window.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") modal.style.display = "none"; });
 
-    function closeModal() {
-        modal.style.display = "none";
-        $(".modal-body").innerHTML = '<img id="modalImage" alt="">';
-        $("#modalControls").style.display = "block";
+    /* ── Utilities ─────────────────────────────────────────── */
+    function fmt(bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+        return (bytes / 1048576).toFixed(1) + " MB";
+    }
+    function formatKey(k) { return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
+    function getVerdictClass(v) {
+        v = (v || "").toLowerCase();
+        if (v.includes("authentic") || v.includes("real")) return "green";
+        if (v.includes("suspicious")) return "amber";
+        return "red";
+    }
+    function escape(str) { const d = document.createElement("div"); d.textContent = str; return d.innerHTML; }
+    function animateNumber(el, start, end, duration) {
+        const startTime = performance.now();
+        function update(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const current = Math.floor(start + (end - start) * (1 - Math.pow(1 - progress, 3)));
+            el.textContent = current;
+            if (progress < 1) requestAnimationFrame(update);
+        }
+        requestAnimationFrame(update);
     }
 
-    /* ── helpers ──────────────────────────────────────────── */
-    function fmt(b) { return b < 1024 ? b+" B" : b < 1048576 ? (b/1024).toFixed(1)+" KB" : (b/1048576).toFixed(1)+" MB"; }
-    function fmtKey(k) { return k.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()); }
-    function vclass(v) { v=(v||"").toLowerCase(); return v.includes("authentic")||v.includes("real")?"authentic":v.includes("suspicious")?"suspicious":"manipulated"; }
-    function esc(s) { const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
-    function animNum(el,from,to,ms) {
-        const t0=performance.now();
-        (function f(t){ const p=Math.min((t-t0)/ms,1); el.textContent=Math.round(from+(to-from)*(1-Math.pow(1-p,3))); if(p<1) requestAnimationFrame(f); })(t0);
+    /* ── Intersection Observer for feature cards ───────────── */
+    const featureCards = $$(".feature-card");
+    if (featureCards.length) {
+        const observer = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = "1";
+                    entry.target.style.transform = "translateY(0)";
+                }
+            });
+        }, { threshold: 0.1 });
+
+        featureCards.forEach((card, i) => {
+            card.style.opacity = "0";
+            card.style.transform = "translateY(24px)";
+            card.style.transition = `all 0.5s cubic-bezier(.16,1,.3,1) ${i * 0.08}s`;
+            observer.observe(card);
+        });
     }
 })();

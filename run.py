@@ -20,11 +20,11 @@ def main():
     import uvicorn
     from app.config import HOST, PORT, DEBUG
 
-    print(f"    🌐 Starting server at http://{HOST}:{PORT}")
-    print(f"    📊 Dashboard:       http://{HOST}:{PORT}/")
-    print(f"    📋 API Docs:        http://{HOST}:{PORT}/docs")
-    print(f"    🔧 Debug mode:      {DEBUG}")
-    print(f"    {'─' * 50}")
+    print(f"    [*] Starting server at http://{HOST}:{PORT}")
+    print(f"    [>] Dashboard:       http://{HOST}:{PORT}/")
+    print(f"    [>] API Docs:        http://{HOST}:{PORT}/docs")
+    print(f"    [>] Debug mode:      {DEBUG}")
+    print(f"    {'-' * 50}")
     print()
 
     uvicorn.run(
