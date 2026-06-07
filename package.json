@@ -1,0 +1,8 @@
+{
+  "name": "forensicai-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"No build step needed – Netlify will serve static files\""
+  }
+}

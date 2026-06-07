@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: forensicai-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    # Use the repository root as the build context (default).
+    rootDir: .
+    buildCommand: ""
+    startCommand: "python run.py"
+    envVars:
+      - key: FORENSICAI_HOST
+        value: "0.0.0.0"
+      - key: FORENSICAI_PORT
+        value: "8000"
+      - key: FORENSICAI_DEBUG
+        value: "false"
+    healthCheckPath: /health
+    ports:
+      - 8000
